@@ -1,22 +1,57 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Storage Fill Lab</title>
-<style>body{font-family:system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 20px;background:#0b1020;color:#eef}.card{background:#151c33;padding:24px;border-radius:16px;margin:16px 0}label{display:block;margin:12px 0 6px}input,select,button{padding:11px;border-radius:9px;border:1px solid #46506b;background:#0e1427;color:#fff}input{width:160px}button{cursor:pointer;margin:8px 6px 0 0}.danger{background:#7d2430}.bar{height:14px;background:#2a3350;border-radius:8px;overflow:hidden;margin-top:12px}.fill{height:100%;width:0;background:#65d69a}.muted{color:#aeb8d0}.warn{border-left:4px solid #e5b84b;padding:12px;background:#282313}</style>
-</head><body>
-<h1>Storage Fill Lab</h1><p class="muted">Generate large local test files. Nothing is uploaded to a server.</p>
-<div class="card"><h2>1. Destination</h2><select id="dest"><option value="download">Normal browser download</option><option value="external">External / phone storage</option></select><p id="compat" class="muted">External storage uses the browser File System Access API where supported.</p><button id="pick" hidden>Choose folder</button><div id="picked"></div></div>
-<div class="card"><h2>2. File</h2><select id="type"><option value="txt">Text (.txt)</option><option value="pdf">PDF (.pdf)</option></select><label>Size</label><input id="size" type="number" min="1" value="100"><select id="unit"><option>MB</option><option>GB</option><option>KB</option></select><label>Payload</label><select id="payload"><option value="mixed">Mixed garbage text</option><option value="zero">Zero bytes</option><option value="hex">Hex-like data</option><option value="random">Random bytes</option></select></div>
-<div class="card"><h2>3. Generate</h2><div class="warn">Do not target 100% of a device's storage. Leave substantial free space so the operating system can continue functioning. Filling storage is not a guaranteed secure-erasure method for flash storage.</div><button id="start">Generate file</button><button id="stop" class="danger" disabled>Stop</button><div class="bar"><div id="fill" class="fill"></div></div><p id="status" class="muted">Ready.</p></div>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0b1020"><title>Storage Fill Lab</title>
+<style>
+body{font-family:system-ui,-apple-system,sans-serif;max-width:900px;margin:32px auto;padding:0 18px;background:#0b1020;color:#eef}.card{background:#151c33;padding:22px;border-radius:16px;margin:14px 0}h1{margin-bottom:6px}label{display:block;margin:12px 0 6px}input,select,button{padding:11px;border-radius:9px;border:1px solid #46506b;background:#0e1427;color:#fff;font:inherit}input{width:150px}button{cursor:pointer;margin:8px 6px 0 0}.danger{background:#7d2430}.bar{height:14px;background:#2a3350;border-radius:8px;overflow:hidden;margin-top:14px}.fill{height:100%;width:0;background:#65d69a;transition:width .12s}.muted{color:#aeb8d0}.warn{border-left:4px solid #e5b84b;padding:12px;background:#282313;line-height:1.5}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}@media(max-width:650px){.grid{grid-template-columns:1fr}}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}.stat{background:#0e1427;padding:10px;border-radius:9px}.stat b{display:block;margin-top:3px}
+</style>
+</head>
+<body>
+<h1>Storage Fill Lab</h1><p class="muted">Generate large local test files. Data stays on the selected device; this site has no upload endpoint.</p>
+<div class="card"><h2>1. Destination</h2><select id="dest"><option value="save">Save directly to a chosen folder</option><option value="download">Browser download</option></select><p id="compat" class="muted">For very large files, use “Save directly” on a browser supporting the File System Access API.</p></div>
+<div class="card"><h2>2. File</h2><div class="grid"><div><label>Type</label><select id="type"><option value="txt">Text (.txt)</option><option value="pdf">PDF (.pdf) — experimental</option></select></div><div><label>Payload</label><select id="payload"><option value="mixed">Mixed garbage text</option><option value="zero">Zero bytes</option><option value="hex">Hex-like data</option><option value="random">Random bytes</option></select></div><div><label>Target size</label><input id="size" type="number" min="1" value="10"><select id="unit"><option>GB</option><option>MB</option><option>KB</option></select></div><div><label>Performance</label><select id="perf"><option value="eco">Eco — older devices</option><option value="balanced" selected>Balanced</option><option value="max">Maximum throughput</option></select></div></div></div>
+<div class="card"><h2>3. Generate</h2><div class="warn"><b>Testing only:</b> do not intentionally consume all available device storage. Leave free space for the OS. Filling logical free space is not a guaranteed secure-erasure method on flash storage.</div><button id="start">Generate file</button><button id="stop" class="danger" disabled>Stop</button><div class="bar"><div id="fill" class="fill"></div></div><div class="stats"><div class="stat">Generated<b id="done">0 B</b></div><div class="stat">Speed<b id="speed">0 MB/s</b></div><div class="stat">Elapsed<b id="elapsed">00:00</b></div></div><p id="status" class="muted">Ready.</p></div>
 <script>
-let dir=null,abort=false;const $=id=>document.getElementById(id);
-$('dest').onchange=()=>{$('pick').hidden=$('dest').value!=='external';$('compat').textContent=$('dest').value==='external'?(('showDirectoryPicker' in window)?'Supported: choose a folder on an accessible drive/device. USB phones using MTP may still be unavailable to the browser.':'Not supported by this browser; use a browser with File System Access API support.'):'The browser will download the generated file.'};
-$('pick').onclick=async()=>{try{dir=await window.showDirectoryPicker({mode:'readwrite'});$('picked').textContent='Selected: '+dir.name}catch(e){$('picked').textContent='Folder selection cancelled.'}};
-function bytes(){let n=Number($('size').value)||1,u=$('unit').value;return n*(u==='GB'?1073741824:u==='MB'?1048576:1024)}
-function chunk(n=1048576){let mode=$('payload').value,b=new Uint8Array(n);if(mode==='zero')return b;if(mode==='random'){crypto.getRandomValues(b);return b}if(mode==='hex'){let s='DEADBEEF 00 FF A5 5A 13 37 ';let t=new TextEncoder().encode(s);for(let i=0;i<n;i++)b[i]=t[i%t.length];return b}let s='STORAGE-FILL-LAB | garbage test data | 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ | ';let t=new TextEncoder().encode(s);for(let i=0;i<n;i++)b[i]=t[i%t.length];return b}
-async function run(){let total=bytes(),name='storage-fill-'+Date.now()+($('type').value==='pdf'?'.pdf':'.txt');abort=false;$('start').disabled=true;$('stop').disabled=false;let written=0,stream=null,writer=null;try{if($('dest').value==='external'){if(!dir)throw Error('Choose an external folder first.');let h=await dir.getFileHandle(name,{create:true});writer=await h.createWritable()}else{stream=new TransformStream();writer=stream.writable.getWriter();let r=stream.readable;let p=new Response(r).blob().then(blob=>{let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000)});}
-let head=$('type').value==='pdf'?new TextEncoder().encode('%PDF-1.4\n% Storage Fill Lab\n'):new Uint8Array();if(head.length){await writer.write(head);written+=head.length}
-while(written<total&&!abort){let c=chunk(Math.min(1024*1024,total-written));await writer.write(c);written+=c.length;let pct=written/total*100;$('fill').style.width=pct+'%';$('status').textContent=(pct.toFixed(1)+'% — '+(written/1073741824).toFixed(2)+' GB generated')}
-await writer.close();$('status').textContent=abort?'Stopped at '+(written/1073741824).toFixed(2)+' GB.':'Complete: '+(written/1073741824).toFixed(2)+' GB.'}catch(e){$('status').textContent='Error: '+e.message}finally{$('start').disabled=false;$('stop').disabled=true}}
-$('stop').onclick=()=>abort=true;$('start').onclick=()=>{if(bytes()>5*1073741824&&!confirm('This will generate more than 5 GB. Continue?'))return;run()};
-</script></body></html>
+const $=id=>document.getElementById(id);let worker=null,writer=null,abort=false,written=0,total=0,startTime=0,lastUI=0,lastBytes=0;
+function bytes(){const n=Math.max(1,Number($('size').value)||1),u=$('unit').value;return n*(u==='GB'?1073741824:u==='MB'?1048576:1024)}
+function fmt(n){if(n<1024)return n.toFixed(0)+' B';const u=['KB','MB','GB','TB'];let x=n,i=-1;while(x>=1024&&i<u.length-1){x/=1024;i++}return x.toFixed(i<1?0:2)+' '+u[i]}
+function timeFmt(s){s=Math.max(0,Math.floor(s));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function chunkSize(){return $('perf').value==='eco'?1024*1024:$('perf').value==='max'?16*1024*1024:4*1024*1024}
+function setUI(){const now=performance.now();if(now-lastUI<200&&written<total)return;lastUI=now;$('fill').style.width=(Math.min(100,written/total*100)).toFixed(2)+'%';$('done').textContent=fmt(written);const elapsed=(now-startTime)/1000;$('elapsed').textContent=timeFmt(elapsed);const rate=(written-lastBytes)/Math.max(.001,(now-(startTime?lastUI:now))/1000);lastBytes=written;$('speed').textContent=fmt(written/Math.max(.001,elapsed))+'/s'}
+async function chooseWriter(){
+ const filename='storage-fill-'+Date.now()+($('type').value==='pdf'?'.pdf':'.txt');
+ if($('dest').value==='save'){
+   if(!window.showSaveFilePicker) throw Error('This browser does not support direct large-file saving. Try current Chrome or Edge.');
+   const h=await showSaveFilePicker({suggestedName:filename,types:[{description:$('type').value==='pdf'?'PDF':'Text',accept:$('type').value==='pdf'?{'application/pdf':['.pdf']}: {'text/plain':['.txt']}}]});
+   return h.createWritable();
+ }
+ // Legacy fallback is intentionally capped: a giant Blob can exhaust memory/storage.
+ if(total>4*1024*1024*1024) throw Error('Browser download mode is capped at 4 GB. Use “Save directly” for 100–200 GB files.');
+ const chunks=[];return {write:async c=>chunks.push(new Uint8Array(c)),close:async()=>{const blob=new Blob(chunks,{type:$('type').value==='pdf'?'application/pdf':'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),60000)}};
+}
+async function run(){
+ total=bytes();written=0;lastBytes=0;startTime=performance.now();lastUI=0;abort=false;$('start').disabled=true;$('stop').disabled=false;$('fill').style.width='0%';
+ try{
+   writer=await chooseWriter();
+   worker=new Worker('./generator-worker.js');
+   let stoppedResolve;const stopped=new Promise(r=>stoppedResolve=r);
+   worker.onmessage=async e=>{
+     if(e.data.type==='chunk'){
+       if(abort){worker.postMessage({type:'stop'});return;}
+       const remaining=total-written;const data=new Uint8Array(e.data.buffer,0,Math.min(e.data.buffer.byteLength,remaining));
+       try{await writer.write(data);written+=data.byteLength;setUI();worker.postMessage({type:'next'})}catch(err){abort=true;$('status').textContent='Write error: '+err.message;worker.postMessage({type:'stop'});stoppedResolve()}
+     }else if(e.data.type==='stopped') stoppedResolve();
+   };
+   worker.postMessage({type:'start',chunkSize:chunkSize(),mode:$('payload').value});
+   const tick=setInterval(()=>{if(written>=total||abort)clearInterval(tick);setUI()},250);
+   while(written<total&&!abort) await new Promise(r=>setTimeout(r,100));
+   worker.postMessage({type:'stop'});await stopped;
+   if(written>=total&&!abort){await writer.close();$('status').textContent='Complete — '+fmt(written)+' generated.'}else{$('status').textContent='Stopped — '+fmt(written)+' generated.';try{await writer.close()}catch{}}
+ }catch(e){$('status').textContent='Error: '+e.message;try{if(writer)await writer.abort?.()}catch{}}
+ finally{worker?.terminate();worker=null;writer=null;$('start').disabled=false;$('stop').disabled=true;setUI()}
+}
+$('stop').onclick=()=>{abort=true;if(worker)worker.postMessage({type:'stop'});};
+$('start').onclick=()=>{if(total=bytes(),total>5*1024*1024*1024&&!confirm('This will generate more than 5 GB. Continue?'))return;run()};
+$('dest').onchange=()=>{$('compat').textContent=$('dest').value==='save'?(('showSaveFilePicker' in window)?'Direct streaming is available. Choose a destination file; data is written incrementally.':'Direct saving is unavailable in this browser. Try current Chrome or Edge.'):'Browser download mode stores chunks in browser memory and is capped at 4 GB.'};
+</script>
+</body></html>
