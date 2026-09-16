@@ -1,6 +1,7 @@
 let stopped = false;
 let buffer;
 let pattern;
+let mode = 'mixed';
 let waiting = false;
 
 self.onmessage = (event) => {
@@ -21,11 +22,14 @@ self.onmessage = (event) => {
   stopped = false;
   waiting = false;
   const chunkSize = data.chunkSize;
-  const mode = data.mode;
+  mode = data.mode;
   const encoder = new TextEncoder();
 
   if (mode === 'random') {
     buffer = new Uint8Array(chunkSize);
+    pattern = null;
+  } else if (mode === 'zero') {
+    buffer = new Uint8Array(chunkSize); // Typed arrays are zero-filled.
     pattern = null;
   } else {
     const source = mode === 'hex'
@@ -38,12 +42,19 @@ self.onmessage = (event) => {
   emitChunk();
 };
 
+function fillRandom(bytes) {
+  // Web Crypto limits getRandomValues() calls to 65,536 bytes.
+  for (let offset = 0; offset < bytes.length; offset += 65536) {
+    crypto.getRandomValues(bytes.subarray(offset, Math.min(offset + 65536, bytes.length)));
+  }
+}
+
 function emitChunk() {
   if (stopped) {
     self.postMessage({ type: 'stopped' });
     return;
   }
-  if (!pattern && buffer) crypto.getRandomValues(buffer);
+  if (mode === 'random') fillRandom(buffer);
   const copy = buffer.slice();
   waiting = true;
   self.postMessage({ type: 'chunk', buffer: copy.buffer }, [copy.buffer]);
